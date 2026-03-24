@@ -1,0 +1,104 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model Shop {
+  id           String   @id @default(cuid())
+  shopDomain   String   @unique
+  name         String?
+  email        String?
+  logoUrl      String?
+  planId       String?
+  plan         Plan?    @relation(fields: [planId], references: [id])
+  invoiceCount Int      @default(0)
+  cycleStartAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  templates InvoiceTemplate[]
+  invoices  Invoice[]
+}
+
+model Plan {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  displayName   String
+  price         Decimal  @default(0)
+  invoiceLimit  Int?
+  shopifyPlanId String?
+  createdAt     DateTime @default(now())
+
+  shops Shop[]
+}
+
+model InvoiceTemplate {
+  id        String   @id @default(cuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name      String
+  isDefault Boolean  @default(false)
+  config    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices Invoice[]
+
+  @@index([shopId])
+}
+
+model Invoice {
+  id             String           @id @default(cuid())
+  shopId         String
+  shop           Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  templateId     String?
+  template       InvoiceTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  shopifyOrderId String
+  orderNumber    String
+  invoiceNumber  String
+  customerName   String?
+  customerEmail  String?
+  subtotal       Decimal
+  discount       Decimal          @default(0)
+  total          Decimal
+  currency       String           @default("USD")
+  status         String           @default("draft")
+  pdfUrl         String?
+  sentAt         DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([shopId, shopifyOrderId])
+  @@unique([shopId, invoiceNumber])
+  @@index([shopId])
+}
