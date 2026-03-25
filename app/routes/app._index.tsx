@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -296,11 +296,15 @@ export default function Index() {
   const shopify = useAppBridge();
   const [searchParams, setSearchParams] = useSearchParams();
   const actionData = useActionData<typeof action>();
-  const isSubmitting = navigation.state === "submitting";
+  const [searchQuery, setSearchQuery] = useState("");
 
   const submittingOrderId =
     navigation.state === "submitting"
       ? new URLSearchParams(navigation.formData as any).get("orderId")
+      : null;
+  const submittingIntent =
+    navigation.state === "submitting"
+      ? new URLSearchParams(navigation.formData as any).get("intent")
       : null;
 
   const handleAction = (intent: string, orderId: string) => {
@@ -310,25 +314,37 @@ export default function Index() {
     submit(formData, { method: "POST" });
   };
 
-  // Open PDF or show toast when action completes
   useEffect(() => {
     if (!actionData) return;
-    if (actionData.pdfUrl) {
-      window.open(actionData.pdfUrl, "_blank");
-    }
-    if (actionData.success) {
-      shopify.toast.show(actionData.success);
-    }
-    if (actionData.error) {
-      shopify.toast.show(actionData.error, { isError: true });
-    }
+    if (actionData.pdfUrl) window.open(actionData.pdfUrl, "_blank");
+    if (actionData.success) shopify.toast.show(actionData.success);
+    if (actionData.error) shopify.toast.show(actionData.error, { isError: true });
   }, [actionData]);
+
+  // Client-side search
+  const filteredOrders = searchQuery
+    ? orders.filter((o: any) =>
+        o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        o.customer.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : orders;
+
+  // KPI stats
+  const usagePercent = limitCheck.limit
+    ? Math.min(Math.round((limitCheck.current / limitCheck.limit) * 100), 100)
+    : 0;
+  const paidCount = orders.filter((o: any) => o.status === "PAID").length;
+  const pendingCount = orders.filter((o: any) =>
+    ["PENDING", "PARTIALLY_PAID", "AUTHORIZED"].includes(o.status)
+  ).length;
+  const totalValue = orders.reduce((sum: number, o: any) => sum + Number(o.total), 0);
+  const currency = orders[0]?.currency || "BRL";
 
   return (
     <s-page heading="Pedidos">
       {!limitCheck.allowed && (
         <s-banner tone="critical">
-          Limite de {limitCheck.limit} invoices atingido neste ciclo.
+          Limite de {limitCheck.limit} invoices atingido neste ciclo.{" "}
           <s-link href="/app/pricing">Faça upgrade do seu plano</s-link>.
         </s-banner>
       )}
@@ -340,118 +356,216 @@ export default function Index() {
 
       <s-layout>
         <s-layout-section>
-          {orders.length === 0 ? (
-            <s-card>
-              <s-box padding="loose">
-                <s-stack direction="block" gap="base" align="center">
-                  <s-heading>Nenhum pedido encontrado</s-heading>
-                  <s-paragraph>
-                    Quando sua loja receber pedidos, eles aparecerão aqui.
-                  </s-paragraph>
+          <s-stack direction="block" gap="base">
+            {/* Dashboard KPI Cards */}
+            <div style={kpiRowStyle}>
+              <div style={kpiCardStyle}>
+                <s-stack direction="block" gap="tight">
+                  <span style={kpiLabelStyle}>Invoices no ciclo</span>
+                  <s-stack direction="inline" gap="tight" blockAlign="end">
+                    <s-text variant="headingLg" fontWeight="bold">
+                      {limitCheck.current}
+                    </s-text>
+                    {limitCheck.limit !== null && (
+                      <span style={kpiSecondaryStyle}>/ {limitCheck.limit}</span>
+                    )}
+                  </s-stack>
+                  {limitCheck.limit !== null ? (
+                    <s-progress-bar
+                      progress={usagePercent}
+                      size="small"
+                      {...(usagePercent >= 80 ? { tone: "critical" } : {})}
+                    />
+                  ) : (
+                    <span style={kpiSecondaryStyle}>Ilimitado</span>
+                  )}
                 </s-stack>
-              </s-box>
-            </s-card>
-          ) : (
-            <s-card>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={thRowStyle}>
-                    <th style={thStyle}>Pedido</th>
-                    <th style={thStyle}>Cliente</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Subtotal</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Desconto</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
-                    <th style={thStyle}>Status</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map((order: any) => {
-                    const isThisSubmitting = submittingOrderId === order.id;
-                    return (
-                      <tr key={order.id} style={trStyle}>
-                        <td style={tdStyle}>
-                          <strong>{order.name}</strong>
-                          <div style={{ fontSize: "11px", color: "#666" }}>
-                            {new Date(order.createdAt).toLocaleDateString("pt-BR")}
-                          </div>
-                        </td>
-                        <td style={tdStyle}>{order.customer}</td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>
-                          {formatMoney(order.subtotal, order.currency)}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>
-                          {Number(order.discount) > 0
-                            ? `-${formatMoney(order.discount, order.currency)}`
-                            : "—"}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>
-                          {formatMoney(order.total, order.currency)}
-                        </td>
-                        <td style={tdStyle}>
-                          <StatusBadge status={order.status} />
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>
-                          <s-stack direction="inline" gap="tight">
-                            <s-button
-                              variant="tertiary"
-                              size="slim"
-                              onClick={() => handleAction("download", order.id)}
-                              {...(isThisSubmitting ? { loading: true } : {})}
-                              {...(!limitCheck.allowed ? { disabled: true } : {})}
-                            >
-                              PDF
-                            </s-button>
-                            <s-button
-                              variant="tertiary"
-                              size="slim"
-                              onClick={() => handleAction("send", order.id)}
-                              {...(isThisSubmitting ? { loading: true } : {})}
-                              {...(!limitCheck.allowed || !order.customerEmail
-                                ? { disabled: true }
-                                : {})}
-                            >
-                              Email
-                            </s-button>
-                          </s-stack>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              </div>
 
-              {/* Pagination */}
-              {(pageInfo.hasPreviousPage || pageInfo.hasNextPage) && (
-                <div style={paginationStyle}>
-                  <s-stack direction="inline" gap="base" align="center">
-                    <s-button
-                      variant="tertiary"
-                      {...(!pageInfo.hasPreviousPage ? { disabled: true } : {})}
-                      onClick={() => {
-                        const params = new URLSearchParams();
-                        if (pageInfo.startCursor) params.set("before", pageInfo.startCursor);
-                        setSearchParams(params);
-                      }}
-                    >
-                      ← Anterior
-                    </s-button>
-                    <s-button
-                      variant="tertiary"
-                      {...(!pageInfo.hasNextPage ? { disabled: true } : {})}
-                      onClick={() => {
-                        const params = new URLSearchParams();
-                        if (pageInfo.endCursor) params.set("after", pageInfo.endCursor);
-                        setSearchParams(params);
-                      }}
-                    >
-                      Próximo →
-                    </s-button>
+              <div style={kpiCardStyle}>
+                <s-stack direction="block" gap="tight">
+                  <span style={kpiLabelStyle}>Pedidos</span>
+                  <s-text variant="headingLg" fontWeight="bold">
+                    {orders.length}
+                  </s-text>
+                  <s-stack direction="inline" gap="tight">
+                    {paidCount > 0 && (
+                      <s-badge tone="success">{paidCount} pagos</s-badge>
+                    )}
+                    {pendingCount > 0 && (
+                      <s-badge tone="warning">{pendingCount} pendentes</s-badge>
+                    )}
+                  </s-stack>
+                </s-stack>
+              </div>
+
+              <div style={kpiCardStyle}>
+                <s-stack direction="block" gap="tight">
+                  <span style={kpiLabelStyle}>Valor total</span>
+                  <s-text variant="headingLg" fontWeight="bold">
+                    {formatMoney(totalValue.toFixed(2), currency)}
+                  </s-text>
+                  <span style={kpiSecondaryStyle}>
+                    {orders.length} pedidos nesta página
+                  </span>
+                </s-stack>
+              </div>
+            </div>
+
+            {/* Orders Card */}
+            {orders.length === 0 ? (
+              <div style={whiteCardStyle}>
+                <div style={{ padding: "40px 20px", textAlign: "center" }}>
+                  <s-stack direction="block" gap="base" align="center">
+                    <div style={{ fontSize: "48px", lineHeight: "1" }}>📋</div>
+                    <s-heading>Nenhum pedido encontrado</s-heading>
+                    <s-paragraph>
+                      Quando sua loja receber pedidos, eles aparecerão aqui para gerar invoices.
+                    </s-paragraph>
                   </s-stack>
                 </div>
-              )}
-            </s-card>
-          )}
+              </div>
+            ) : (
+              <div style={whiteCardStyle}>
+                <style>{`
+                  .si-order-row:hover { background-color: #f6f6f7; }
+                  .si-order-row { transition: background-color 0.15s ease; }
+                `}</style>
+
+                {/* Search */}
+                <div style={searchBarStyle}>
+                  <s-text-field
+                    label="Buscar pedidos"
+                    labelAccessibilityVisibility="hidden"
+                    placeholder="Buscar por número do pedido ou cliente..."
+                    value={searchQuery}
+                    onInput={(e: Event) =>
+                      setSearchQuery((e.target as HTMLInputElement).value)
+                    }
+                  />
+                </div>
+
+                {/* Table */}
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={headerRowStyle}>
+                      <th style={thStyle}>Pedido</th>
+                      <th style={thStyle}>Cliente</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Subtotal</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Desconto</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
+                      <th style={{ ...thStyle, textAlign: "center" }}>Status</th>
+                      <th style={{ ...thStyle, textAlign: "center" }}>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} style={emptySearchStyle}>
+                          Nenhum resultado para &ldquo;{searchQuery}&rdquo;
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredOrders.map((order: any) => {
+                        const isThisOrder = submittingOrderId === order.id;
+                        return (
+                          <tr key={order.id} className="si-order-row" style={rowStyle}>
+                            <td style={tdStyle}>
+                              <strong style={{ fontSize: "13px", color: "#202223" }}>
+                                {order.name}
+                              </strong>
+                              <div style={{ fontSize: "11px", color: "#8c9196", marginTop: "2px" }}>
+                                {new Date(order.createdAt).toLocaleDateString("pt-BR")}
+                              </div>
+                            </td>
+                            <td style={tdStyle}>
+                              <span style={{ color: "#202223" }}>{order.customer}</span>
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: "right" }}>
+                              {formatMoney(order.subtotal, order.currency)}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: "right" }}>
+                              <span style={{ color: Number(order.discount) > 0 ? "#d72c0d" : "#8c9196" }}>
+                                {Number(order.discount) > 0
+                                  ? `-${formatMoney(order.discount, order.currency)}`
+                                  : "—"}
+                              </span>
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#202223" }}>
+                              {formatMoney(order.total, order.currency)}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: "center" }}>
+                              <StatusBadge status={order.status} />
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: "center" }}>
+                              <s-stack direction="inline" gap="tight" align="center">
+                                <s-button
+                                  variant="tertiary"
+                                  size="slim"
+                                  onClick={() => handleAction("download", order.id)}
+                                  {...(isThisOrder && submittingIntent === "download"
+                                    ? { loading: true }
+                                    : {})}
+                                  {...((!limitCheck.allowed || (isThisOrder && submittingIntent !== "download"))
+                                    ? { disabled: true }
+                                    : {})}
+                                >
+                                  Gerar PDF
+                                </s-button>
+                                <s-button
+                                  variant="tertiary"
+                                  size="slim"
+                                  onClick={() => handleAction("send", order.id)}
+                                  {...(isThisOrder && submittingIntent === "send"
+                                    ? { loading: true }
+                                    : {})}
+                                  {...((!limitCheck.allowed || !order.customerEmail || (isThisOrder && submittingIntent !== "send"))
+                                    ? { disabled: true }
+                                    : {})}
+                                >
+                                  Enviar
+                                </s-button>
+                              </s-stack>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+
+                {/* Pagination */}
+                {(pageInfo.hasPreviousPage || pageInfo.hasNextPage) && (
+                  <div style={paginationStyle}>
+                    <s-stack direction="inline" gap="base" align="center">
+                      <s-button
+                        variant="tertiary"
+                        {...(!pageInfo.hasPreviousPage ? { disabled: true } : {})}
+                        onClick={() => {
+                          const params = new URLSearchParams();
+                          if (pageInfo.startCursor) params.set("before", pageInfo.startCursor);
+                          setSearchParams(params);
+                        }}
+                      >
+                        ← Anterior
+                      </s-button>
+                      <s-button
+                        variant="tertiary"
+                        {...(!pageInfo.hasNextPage ? { disabled: true } : {})}
+                        onClick={() => {
+                          const params = new URLSearchParams();
+                          if (pageInfo.endCursor) params.set("after", pageInfo.endCursor);
+                          setSearchParams(params);
+                        }}
+                      >
+                        Próximo →
+                      </s-button>
+                    </s-stack>
+                  </div>
+                )}
+              </div>
+            )}
+          </s-stack>
         </s-layout-section>
       </s-layout>
     </s-page>
@@ -573,31 +687,74 @@ function mapOrderNodeToOrderData(node: any, invoiceNumber: string) {
   };
 }
 
-const thRowStyle: React.CSSProperties = {
-  borderBottom: "2px solid #e5e5e5",
+const kpiRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+const kpiCardStyle: React.CSSProperties = {
+  flex: "1 1 200px",
+  background: "#ffffff",
+  borderRadius: "12px",
+  border: "1px solid #e1e3e5",
+  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
+  padding: "16px 20px",
+};
+const whiteCardStyle: React.CSSProperties = {
+  background: "#ffffff",
+  borderRadius: "12px",
+  border: "1px solid #e1e3e5",
+  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
+  overflow: "hidden",
+};
+const kpiLabelStyle: React.CSSProperties = {
+  fontSize: "12px",
+  color: "#6d7175",
+  textTransform: "uppercase",
+  letterSpacing: "0.5px",
+  fontWeight: 600,
+};
+const kpiSecondaryStyle: React.CSSProperties = {
+  fontSize: "13px",
+  color: "#8c9196",
+};
+const searchBarStyle: React.CSSProperties = {
+  padding: "12px 16px",
+  borderBottom: "1px solid #e1e3e5",
+};
+const headerRowStyle: React.CSSProperties = {
+  borderBottom: "1px solid #c9cccf",
+  backgroundColor: "#f6f6f7",
 };
 const thStyle: React.CSSProperties = {
-  padding: "10px 12px",
+  padding: "10px 16px",
   fontSize: "12px",
   fontWeight: 600,
-  color: "#666",
+  color: "#6d7175",
   textAlign: "left",
   textTransform: "uppercase",
-  letterSpacing: "0.3px",
+  letterSpacing: "0.4px",
 };
-const trStyle: React.CSSProperties = {
-  borderBottom: "1px solid #f0f0f0",
+const rowStyle: React.CSSProperties = {
+  borderBottom: "1px solid #f1f2f4",
 };
 const tdStyle: React.CSSProperties = {
-  padding: "10px 12px",
+  padding: "12px 16px",
   fontSize: "13px",
   verticalAlign: "middle",
+  color: "#202223",
+};
+const emptySearchStyle: React.CSSProperties = {
+  padding: "32px",
+  textAlign: "center",
+  color: "#8c9196",
+  fontSize: "14px",
 };
 const paginationStyle: React.CSSProperties = {
-  padding: "12px",
+  padding: "12px 16px",
   display: "flex",
   justifyContent: "center",
-  borderTop: "1px solid #e5e5e5",
+  borderTop: "1px solid #e1e3e5",
 };
 
 export const headers: HeadersFunction = (headersArgs) => {
