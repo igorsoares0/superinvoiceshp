@@ -1,4 +1,7 @@
+export type LayoutType = "classic" | "modern";
+
 export interface TemplateConfig {
+  layout: LayoutType;
   orderInfo: {
     showOrderNumber: boolean;
     showInvoiceNumber: boolean;
@@ -85,6 +88,7 @@ export interface TemplateConfig {
 }
 
 export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
+  layout: "classic",
   orderInfo: {
     showOrderNumber: true,
     showInvoiceNumber: true,

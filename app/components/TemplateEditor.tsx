@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { TemplateConfig } from "../types/template";
+import type { TemplateConfig, LayoutType } from "../types/template";
 
 interface TemplateEditorProps {
   config: TemplateConfig;
@@ -53,6 +53,25 @@ export function TemplateEditor({ config, onChange }: TemplateEditorProps) {
 
   return (
     <div style={editorStyles.container}>
+      {/* Layout Selection */}
+      <div style={editorStyles.layoutSection}>
+        <div style={editorStyles.layoutTitle}>Estilo Visual</div>
+        <div style={editorStyles.layoutOptions}>
+          <LayoutCard
+            label="Clássico"
+            description="Layout tradicional com header lateral e bordas"
+            active={(!config.layout || config.layout === "classic")}
+            onClick={() => setField("layout", "classic")}
+          />
+          <LayoutCard
+            label="Moderno"
+            description="Minimalista com tipografia leve e espaço em branco"
+            active={config.layout === "modern"}
+            onClick={() => setField("layout", "modern")}
+          />
+        </div>
+      </div>
+
       {/* Informações do Pedido */}
       <Section
         title="Informações do Pedido"
@@ -510,12 +529,80 @@ function TextInput({
   );
 }
 
+function LayoutCard({
+  label,
+  description,
+  active,
+  onClick,
+}: {
+  label: string;
+  description: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        ...editorStyles.layoutCard,
+        ...(active ? editorStyles.layoutCardActive : {}),
+      }}
+    >
+      <span style={editorStyles.layoutCardLabel}>{label}</span>
+      <span style={editorStyles.layoutCardDesc}>{description}</span>
+    </button>
+  );
+}
+
 const editorStyles: Record<string, React.CSSProperties> = {
   container: {
     display: "flex",
     flexDirection: "column",
     gap: "1px",
     fontSize: "13px",
+  },
+  layoutSection: {
+    padding: "12px",
+    borderBottom: "1px solid #e5e5e5",
+    background: "#fff",
+  },
+  layoutTitle: {
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#333",
+    marginBottom: "10px",
+  },
+  layoutOptions: {
+    display: "flex",
+    gap: "8px",
+  },
+  layoutCard: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "4px",
+    padding: "10px 12px",
+    border: "2px solid #e5e5e5",
+    borderRadius: "8px",
+    background: "#fff",
+    cursor: "pointer",
+    textAlign: "left" as const,
+    transition: "border-color 0.15s",
+  },
+  layoutCardActive: {
+    borderColor: "#008060",
+    background: "#f0fdf8",
+  },
+  layoutCardLabel: {
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#333",
+  },
+  layoutCardDesc: {
+    fontSize: "11px",
+    color: "#888",
+    lineHeight: 1.3,
   },
   section: {
     borderBottom: "1px solid #e5e5e5",
